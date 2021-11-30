@@ -31,8 +31,8 @@ def clear_folder(dir):
 
 
 # clear_folder(os.getcwd()+"/"+"dvir"+ "/")
-
-print(os.path.isdir(os.getcwd()+"/"+"dvir"+ "/"))
+str = "./ex3_files.zip"
+print(str[1:])
 # make_dir("dvir")
 
 #riplace a file and folders to difent dir
