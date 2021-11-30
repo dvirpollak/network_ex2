@@ -88,7 +88,7 @@ def socket_send(flag, event_path):
     #    print("Server sent: ", str(data, 'utf-8'))
     #    if str(data, 'utf-8') == 'FIN':
     #        s.close()
-    #        break
+    #        break c
 
 
 def on_created(event):

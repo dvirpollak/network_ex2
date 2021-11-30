@@ -96,7 +96,7 @@ while True:
 
     # if not data or message_in_str == "FIN":
     #     client_socket.send(bytes("FIN", "utf_8"))
-    #     break
+    #     break v
 
 client_socket.close()
 print('Client disconnected')
