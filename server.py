@@ -4,9 +4,6 @@ import socket
 import sys
 import time
 
-from watchdog.observers import Observer
-from watchdog.events import LoggingEventHandler
-
 import string
 import random
 
@@ -25,6 +22,19 @@ def make_dir(user_id):
     else:
         print("Successfully created the directory %s " % path)
 
+def clear_folder(dir):
+    if os.path.exists(dir):
+        for the_file in os.listdir(dir):
+            file_path = os.path.join(dir, the_file)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+                else:
+                    clear_folder(file_path)
+                    os.rmdir(file_path)
+            except Exception as e:
+                print(e)
+    os.rmdir(dir)
 
 def accept_tex(path):
     server.listen(6)
@@ -77,6 +87,10 @@ while True:
     if message_list[0] == 'crf':
         spilt_folder_file = message_list[2].split(".")
         make_dir(message_list[1]+"/"+spilt_folder_file[1])
+    if message_list[0] == 'del':
+        spilt_folder_file = message_list[2].split(".")
+        clear_folder(message_list[1] + spilt_folder_file[1])
+
 
 
 
