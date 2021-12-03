@@ -15,114 +15,152 @@ ClINET_PATH = sys.argv[3]
 time_connect = int(sys.argv[4])
 
 
+# ---------------------------
+# make_data - will take a list and
+# make the data to send even encode(FORMAT)
 def make_data(all_data):
     full_data = ""
     token = "$"
     for data in all_data:
         full_data += data + token
-    return full_data
+    print(full_data)
+    return full_data.encode(FORMAT)
 
 
+# -----------------------------------------
+# first_connection - will connect to the sever
+# and send him the identifier and computer id
+# return the identifier
 def first_connection():
     computer_id = id_generator()
+    # check if it got user name
     if len(sys.argv) < 6:
         data = make_data(["NEW_USER", computer_id])
-        # print("I GOT ONE!")
     if len(sys.argv) > 5:
         identifier = sys.argv[5]
         data = make_data(["CONNECT", computer_id, identifier])
 
+    # connect to the server
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
     receive_flag = False
 
+    # will send data and receive
     while True:
         if receive_flag:
-            data = client.recv(SIZE).decode(FORMAT)
+            data = client.recv(SIZE)
 
-        data_list = data.split("$")
+        data_list = data.split(b"$")
         cmd = data_list[0]
 
-        if cmd == "NEW_USER":
-            client.send(data.encode(FORMAT))
+        if cmd == b"NEW_USER":
+            client.send(data)
             receive_flag = True
             continue
-        elif cmd == "CONNECT":
+        elif cmd == b"CONNECT":
             identifier = data_list[2]
-            client.send(data.encode(FORMAT))
+            client.send(data)
             break
-        elif cmd == "NEW_USER_ID":
-            identifier = data_list[1]
+        elif cmd == b"NEW_USER_ID":
+            identifier = data_list[1].decode(FORMAT)
             print(identifier)
             break
 
     print("Disconnected from the server.")
     client.close()
+    # return the identifier
     return identifier
 
 
-def receive_and_send(data):
+# --------------------------------
+# set_size compute the size of message and send
+# so the next commend will not interfere
+def set_size(data):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
-    receive_flag = False
-    if len(data) == 0:
-        receive_flag = True
+    size_of_next_data = sys.getsizeof(data)
+    client.send(make_data(['SET_SIZE', str(size_of_next_data)]))
+    client.close()
 
-    while True:
-        if receive_flag:
-            data = client.recv(SIZE).decode(FORMAT)
-            data_list = data.split("$")
-            cmd = data_list[0]
-        else:
-            data_list = data.split("$")
-            cmd = data_list[0]
 
-        if cmd == "LIST":
-            client.send(cmd.encode(FORMAT))
-        elif cmd == "DELETE":
-            client.send(f"{cmd}@{data[1]}".encode(FORMAT))
-        elif cmd == "UPLOAD":
-            path = data_list[1].split(".")[-1]
-            if os.path.isdir(path):
-                flag = 'CRF'
-                send_data = make_data([flag, path])
-                client.send(send_data.encode(FORMAT))
-                break
+# ------------------------------
+# upload - will uploaded a file or if it
+# is a dir it will send the the server to opne
+def upload(data):
+    data_list = data.split(b"$")
+    path_event = data_list[1].decode(FORMAT)
+    path = ClINET_PATH + path_event
+    print(path)
+    flag_it_dir = False
+    # if its adir sed to make one
+    if os.path.isdir(path):
+        flag = 'CRF'
+        send_data_if_dir = make_data([flag, path_event])
+        flag_it_dir = True
 
-            # with open(f"{path}", "rb") as f:
-            #     text = f.read()
-            #
-            # filename = path.split("/")[-1]
-            # send_data = f"{cmd}@{filename}@{text}"
-            # client.send(send_data.encode(FORMAT))
+    set_size(data)
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
+    if flag_it_dir:
+        client.send(send_data_if_dir)
+        print("Disconnected from the server.")
+        client.close()
+        return
+
+    client.send(data)
+    # will read the file and set as byts
+    # and send it
+    filetosend = open(path, "rb")
+    data = filetosend.read(1024)
+    while data:
+        print("Sending...")
+        client.send(data)
+        data = filetosend.read(1024)
+    filetosend.close()
+    print("Done Sending.")
+
     print("Disconnected from the server.")
     client.close()
     return
 
 
+# -------------------
+# socket_del will send the server to delete the file
+
+def socket_del(data):
+    set_size(data)
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
+    client.send(data)
+    print(data.decode(FORMAT))
+    return
+
+
 def on_created(event):
     print(f"hey, {event.src_path} has been created!")
-    subs = ["xml", "goutputstream","~"]
+    subs = ["xml", "goutputstream", "~"]
     for s in subs:
         if s in event.src_path:
             return
-    print(event.src_path)
-    receive_and_send(make_data(['UPLOAD', event.src_path]))
+    print(event.src_path[1:])
+    upload(make_data(['UPLOAD', event.src_path[1:]]))
 
 
 def on_deleted(event):
-    subs = "xml"
-    if subs in event.src_path:
-        return
-    # socket_del(event.src_path)
+    subs = ["xml", "goutputstream", "~"]
+    for s in subs:
+        if s in event.src_path:
+            return
+    socket_del(make_data(['DELETE', event.src_path[1:]]))
     print(f"what the f**k! Someone deleted {event.src_path}!")
 
 
 def on_modified(event):
     subs = "xml"
-    if subs in event.src_path:
-        return
-    receive_and_send('mod', event.src_path)
+    subs = ["xml", "goutputstream", "~"]
+    for s in subs:
+        if s in event.src_path:
+            return
     print(f"hey buddy, {event.src_path} has been modified")
 
 
