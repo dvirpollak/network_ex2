@@ -48,7 +48,9 @@ def accept_tex(path):
         if data == b"DONE":
             print("Done Receiving.")
             break
+
         filetodown.write(data)
+
     filetodown.close()
     client_socket.send(bytes("Thank you for connecting.", "utf-8"))
     # client_socket.shutdown(2)
@@ -88,7 +90,7 @@ while True:
         spilt_folder_file = message_list[2].split(".")
         make_dir(message_list[1]+"/"+spilt_folder_file[1])
     if message_list[0] == 'del':
-        spilt_folder_file = message_list[2].split(".")
+        spilt_folder_file = message_list[2][1:0]
         clear_folder(message_list[1] + spilt_folder_file[1])
 
 

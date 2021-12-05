@@ -30,7 +30,7 @@ def socket_del(event_path):
     s.connect((ip_address, server_port))
     token = '$'
     flag = 'del'
-    message = flag + token + identifier + token + event_path
+    message = identifier + token + flag + token + event_path
     message_in_bytes = bytes(str(message), 'utf-8')
     s.send(message_in_bytes)
     # maybe check if he got the message properly
@@ -67,8 +67,8 @@ def socket_send(flag, event_path):
     message_in_bytes = bytes(str(message), 'utf-8')
     s.send(message_in_bytes)
     file_name = event_path.split('.')
-    # print(file_name + "here")
-    file_to_send = open(os.getcwd() + file_name[1], "rb")
+    #print(file_name + "here")
+    file_to_send = open(os.getcwd()+file_name[1], "rb")
     data = file_to_send.read(1024)
     while data:
         print("Sending...")
@@ -88,7 +88,7 @@ def socket_send(flag, event_path):
     #    print("Server sent: ", str(data, 'utf-8'))
     #    if str(data, 'utf-8') == 'FIN':
     #        s.close()
-    #        break c
+    #        break
 
 
 def on_created(event):
@@ -100,9 +100,6 @@ def on_created(event):
 
 
 def on_deleted(event):
-    subs = "xml"
-    if subs in event.src_path:
-        return
     socket_del(event.src_path)
     print(f"what the f**k! Someone deleted {event.src_path}!")
 
