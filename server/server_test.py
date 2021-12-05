@@ -7,14 +7,37 @@ import time
 import string
 import random
 
+REC_ACK = 3
 PORT = int(sys.argv[1])
 
 FORMAT = "utf-8"
 SERVER_DATA_PATH = os.getcwd()
 
 
+def return_path(root, identifier):
+    root_list = root.split("/")
+    i = root_list.index(identifier)
+    path = ''
+    for x in root_list[i+1:]:
+        path += "/"
+        path += x
+    return path
+
+# ---------------------------
+# make_data - will take a list and
+# make the data to send even encode(FORMAT)
+def make_data(all_data):
+    full_data = ""
+    token = "$"
+    for data in all_data:
+        full_data += data + token
+    print(full_data)
+    return full_data.encode(FORMAT)
+
+
 def id_generator(size=128, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
+
 
 
 def make_dir(user_id):
@@ -48,7 +71,7 @@ def clear_folder(dir):
 
 def main():
     print("[STARTING] Server is starting")
-    user_id_connected = ""
+    identifier = ""
     user_comp_id_connected = ""
 
     token = "$"
@@ -73,7 +96,7 @@ def main():
             # new user is connecting
             if cmd == b"NEW_USER":
                 generate = id_generator()
-                user_id_connected = generate
+                identifier = generate
                 user_comp_id_connected = data[1].decode(FORMAT)
                 make_dir(generate)
                 send_data = "NEW_USER_ID" + token + generate
@@ -82,14 +105,56 @@ def main():
 
             # user with a user name concect
             if cmd == b"CONNECT":
-                user_id_connected = data[2].decode(FORMAT)
+                identifier = data[2].decode(FORMAT)
                 user_comp_id_connected = data[1].decode(FORMAT)
-                make_dir(user_id_connected)
+                path = os.path.join(os.getcwd(), identifier)
+                for root, dirs, files in os.walk(path, topdown=True):
+
+
+                    for name in files:
+                        full_path = os.path.join(root,name)
+                        deliver_path = return_path(full_path,identifier)
+                        size_of_next_data = sys.getsizeof(make_data(['UPLOAD_FILE', deliver_path]))
+                        conn.send(make_data(['SET_SIZE', str(size_of_next_data)]))
+
+                        print(name)
+                        file_size = os.path.getsize(full_path)
+                        conn.recv(REC_ACK)
+                        conn.send(make_data(['UPLOAD_FILE', deliver_path[1:], str(file_size)]))
+                        print(make_data(['UPLOAD_FILE', deliver_path[1:], str(file_size)]))
+                        conn.recv(REC_ACK)
+
+                        file_to_send = open(full_path, "rb")
+
+
+                        data = file_to_send.read()
+                        conn.send(data)
+
+                        file_to_send.close()
+                        conn.recv(REC_ACK)
+                        print("done sending")
+
+                    for name in dirs:
+                        full_path = os.path.join(root, name)
+                        deliver_path = return_path(full_path, identifier)
+                        size_of_next_data = sys.getsizeof(make_data(['CRF', deliver_path]))
+                        conn.send(make_data(['SET_SIZE', str(size_of_next_data)]))
+                        conn.recv(REC_ACK)
+                        # time.sleep(0.1)
+                        print(make_data(['CRF', deliver_path[1:]]))
+                        conn.send(make_data(['CRF', deliver_path[1:]]))
+                        conn.recv(REC_ACK)
+                        print(name)
+
+                make_dir(identifier)
+                print(identifier)
+                conn.send(b"DONE")
+                print("don sending")
                 break
 
             # makes a dir
             elif cmd == b'CRF':
-                make_dir(user_id_connected + data[1].decode(FORMAT))
+                make_dir(identifier + data[1].decode(FORMAT))
                 break
 
             # uplod file
@@ -97,21 +162,25 @@ def main():
 
                 path_to_put = data[1].decode(FORMAT)
                 print(path_to_put)
-                filepath = SERVER_DATA_PATH + "/" + user_id_connected + path_to_put
+                filepath = SERVER_DATA_PATH + "/" + identifier + path_to_put  #######there is "/" befor path_to_put
                 print(filepath)
                 # right to the file the content that it receive
                 filetodown = open(filepath, "wb")
-                while data:
-                    print("Receiving....")
-                    data = conn.recv(1024)
-                    filetodown.write(data)
+                l = conn.recv(1024)
+                while (l):
+                    print("Receiving...")
+
+                    filetodown.write(l)
+                    l = conn.recv(1024)
+                filetodown.close()
+
                 print("Done Receiving.")
                 filetodown.close()
                 break
             # delete the file
             elif cmd == b"DELETE":
                 event_path_del = data[1].decode(FORMAT)
-                path_del = SERVER_DATA_PATH + "/" + user_id_connected + event_path_del
+                path_del = SERVER_DATA_PATH + "/" + identifier + event_path_del
                 # if its a file
                 if os.path.isfile(path_del):
                     os.unlink(path_del)
@@ -120,6 +189,9 @@ def main():
                     clear_folder(path_del)
                 print(path_del + "-DELETE")
                 break
+            elif cmd == b"MOVE":
+                os.replace(os.path.join(SERVER_DATA_PATH, identifier, data[1].decode(FORMAT)),
+                           os.path.join(SERVER_DATA_PATH, identifier, data[2].decode(FORMAT)))
 
         print(f"[DISCONNECTED] {addr} disconnected")
         conn.close()
