@@ -15,6 +15,77 @@ ClINET_PATH = sys.argv[3]
 time_connect = int(sys.argv[4])
 
 
+# --------------------------
+def second_connection(identifier):
+    computer_id = id_generator()
+    data = make_data(["CONNECT", computer_id, identifier])
+    set_size(data)
+    # connect to the server
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
+    client.send(data)
+    size = 1024
+    while True:
+        data = client.recv(size)
+        data = data.split(b"$")
+        cmd = data[0]
+        if cmd == b'SET_SIZE':
+            size = int(data[1].decode(FORMAT))
+            client.send(b'ACK')
+            continue
+        if cmd == b'UPLOAD_FILE':
+            # time.sleep(0.1)
+            f = os.path.join(ClINET_PATH, data[1].decode(FORMAT))
+            file_to_down = open(os.path.join(ClINET_PATH, data[1].decode(FORMAT)), "wb")
+            size_file = int(data[2].decode(FORMAT))
+            client.send(b'ACK')
+            file_receive = client.recv(size_file)
+            c = 0
+            while file_receive:
+                print("Receiving..")
+                # file_receive = client.recv(size_file)
+                # if not file_receive:
+                #     break
+                file_to_down.write(file_receive)
+                c += len(file_receive)
+                print(c)
+                if c == size_file:
+                    break
+                file_receive = client.recv(1024)
+
+                # size_file -= len(file_receive)
+
+            file_to_down.close()
+            client.send(b'ACK')
+            print("closed")
+            continue
+        if cmd == b'CRF':
+            make_dir(data[1].decode(FORMAT))
+            client.send(b'ACK')
+            continue
+        if cmd == b'DONE':
+            break
+
+    print("Received all files - check me")
+
+# --------------------------
+def make_dir(path):
+    full_path = os.path.join(ClINET_PATH, path)
+    try:
+        os.mkdir(full_path)
+    except OSError:
+        print("Creation of the directory %s failed" % path)
+    else:
+        print("Successfully created the directory %s " % path)
+
+# --------------------------
+def mov_server(data):
+    set_size(data)
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(ADDR)
+    client.send(data)
+    client.close()
+
 # ---------------------------
 # need to implement a backup from a given library
 def upload_file_content(path):
@@ -25,6 +96,9 @@ def upload_file_content(path):
         for name in dirs:
             upload(make_data(['UPLOAD', os.path.join(root, name)[1:]]))
             print(os.path.join(root, name))
+
+    print("DONE SENDING FIRST CONNECTION")
+    return
 
 # ---------------------------
 # make_data - will take a list and
@@ -45,9 +119,9 @@ def make_data(all_data):
 def first_connection():
     computer_id = id_generator()
     # check if it got user name
-    if len(sys.argv) < 6:
+    if len(sys.argv) < 5:
         data = make_data(["NEW_USER", computer_id])
-    if len(sys.argv) > 5:
+    if len(sys.argv) == 5:
         identifier = sys.argv[5]
         data = make_data(["CONNECT", computer_id, identifier])
 
@@ -121,6 +195,7 @@ def upload(data):
     client.send(data)
     # will read the file and set as byts
     # and send it
+    time.sleep(0.2)
     filetosend = open(path, "rb")
     data = filetosend.read(1024)
     while data:
@@ -129,7 +204,6 @@ def upload(data):
         data = filetosend.read(1024)
     filetosend.close()
     print("Done Sending.")
-
     print("Disconnected from the server.")
     client.close()
     return
@@ -175,7 +249,12 @@ def on_modified(event):
 
 
 def on_moved(event):
-    # socket_mov(event.src_path, event.dest_path)
+    subs = ["xml", "goutputstream", "~"]
+    for s in subs:
+        if s in event.src_path:
+            return
+    data_mov = ['MOVE', event.src_path[1:], event.dest_path[1:]]
+    mov_server(make_data(data_mov))
     print(f"ok ok ok, someone moved {event.src_path} to {event.dest_path}")
 
 
@@ -188,10 +267,13 @@ def id_generator(size=3, chars=string.ascii_uppercase + string.digits):
 
 
 def main():
-    identifier = first_connection()
-    print(identifier)
-    if len(sys.argv) < 6:
+    if len(sys.argv) < 5:
+        identifier = first_connection()
         upload_file_content(ClINET_PATH)
+    if len(sys.argv) == 6:
+        identifier = sys.argv[5]
+        make_dir(ClINET_PATH)
+        second_connection(identifier)
     patterns = ["*"]
     ignore_patterns = None
     ignore_directories = False
@@ -201,7 +283,7 @@ def main():
     my_event_handler.on_deleted = on_deleted
     my_event_handler.on_modified = on_modified
     my_event_handler.on_moved = on_moved
-    path = "."
+    path = ClINET_PATH
     go_recursively = True
     my_observer = Observer()
     my_observer.schedule(my_event_handler, path, recursive=go_recursively)
