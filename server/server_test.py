@@ -175,7 +175,6 @@ def main():
             elif cmd == b"DELETE":
                 event_path_del = data[1].decode(FORMAT)[1:]
                 path_del = os.path.join(SERVER_DATA_PATH, identifier, event_path_del)  # check after change
-                # if its a file it will delete the file
                 if os.path.isfile(path_del):
                     os.unlink(path_del)
 
@@ -185,10 +184,21 @@ def main():
                 break
             # move file from source_path to destination_path
             elif cmd == b"MOVE":
-                source_path = os.path.join(SERVER_DATA_PATH, identifier, data[1].decode(FORMAT))
-                destination_path = os.path.join(SERVER_DATA_PATH, identifier, data[2].decode(FORMAT))
+                source_path = os.path.join(SERVER_DATA_PATH, identifier, data[1].decode(FORMAT)[1:])
+                destination_path = os.path.join(SERVER_DATA_PATH, identifier, data[2].decode(FORMAT)[1:])
+                if not os.path.exists(source_path):
+                    print("there is no path - " +source_path)
+                    break
                 os.replace(source_path, destination_path)
-                print("file moved from- " + source_path + "to" + destination_path)
+                print("file moved from- " + source_path + " to " + destination_path)
+                break
+            elif cmd == b"RENAME_DIR":
+                source_path = os.path.join(SERVER_DATA_PATH, identifier, data[1].decode(FORMAT)[1:])
+                destination_path = os.path.join(SERVER_DATA_PATH, identifier, data[2].decode(FORMAT)[1:])
+                os.rename(source_path, destination_path)
+                print("file rename from- " + source_path + " to " + destination_path)
+                break
+
 
         print(f"[DISCONNECTED] {addr} disconnected")
         client.close()
