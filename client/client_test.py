@@ -15,6 +15,8 @@ SIZE = 1024
 ClINET_PATH = sys.argv[3]
 time_connect = int(sys.argv[4])
 flag_rename_dir = False
+TOKEN_IN_BYTES = b'$'
+UPDATE = None
 
 
 def clear_folder(dir):
@@ -34,19 +36,33 @@ def clear_folder(dir):
 
 # will do with a settimeout
 def client_is_listening(computer_id):
+    global UPDATE
+    size = 1024
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
     client.send(make_data([b'CHECK_FOR_UPDATE', computer_id]))
-    data = client.recv(1024)
-    data = data.split(b'$')
-    # number of command to run a loop
-    cmd = data[0]
     while True:
-        if cmd == b'GOOD':
-            break
-        if cmd == b'UPLOAD':
+        UPDATE = None
+        data = client.recv(size)
+        data = data.split(TOKEN_IN_BYTES)
+        cmd = data[0]
+        # to set the size of the commend
+        if cmd == b"SET_SIZE":
+            size = int(data[1].decode(FORMAT))
+            print("SIZE of next pact =" + str(size))
+            continue
+        # makes a dir
+        elif cmd == b'CRF':
+            UPDATE = data[1].decode(FORMAT)
+            make_dir(data[1].decode(FORMAT))
+            continue
+
+        # uplod file
+        elif cmd == b"UPLOAD":
+            UPDATE = data[1].decode(FORMAT)[1:]
             path_to_put = data[1].decode(FORMAT)[1:]
             filepath = os.path.join(ClINET_PATH, path_to_put)  # we need to check after change
+            client.send(b'ACK')
 
             # right to the file the content that it receive
             file_to_down = open(filepath, "wb")
@@ -58,38 +74,42 @@ def client_is_listening(computer_id):
 
             print("Done Receiving the file. " + filepath)
             file_to_down.close()
-            break
-
-        if cmd == b'DELETE':
+            client.send(b'ACK')
+            continue
+        # delete the file
+        elif cmd == b"DELETE":
+            UPDATE = data[1].decode(FORMAT)[1:]
             event_path_del = data[1].decode(FORMAT)[1:]
             path_del = os.path.join(ClINET_PATH, event_path_del)  # check after change
-            # if its a file it will delete the file
             if os.path.isfile(path_del):
                 os.unlink(path_del)
 
             else:  # if it a dir it will delete the dir
                 clear_folder(path_del)
             print("DELETE-" + path_del)
-            break
-
-        if cmd == b'MOVE':
-            source_path = os.path.join(ClINET_PATH, data[1].decode(FORMAT))
-            destination_path = os.path.join(ClINET_PATH, data[2].decode(FORMAT))
+            continue
+        # move file from source_path to destination_path
+        elif cmd == b"MOVE":
+            UPDATE = data[1].decode(FORMAT)[1:]
+            source_path = os.path.join(ClINET_PATH, data[1].decode(FORMAT)[1:])
+            destination_path = os.path.join(ClINET_PATH, data[2].decode(FORMAT)[1:])
+            if not os.path.exists(source_path):
+                print("there is no path - " + source_path)
+                continue
             os.replace(source_path, destination_path)
-            print("file moved from- " + source_path + "to" + destination_path)
-            break
-
-        if cmd == b'CRF':
-            make_dir(ClINET_PATH + data[1].decode(FORMAT))
-            break
-
-        if cmd == b"RENAME_DIR":
+            print("file moved from- " + source_path + " to " + destination_path)
+            continue
+        elif cmd == b"RENAME_DIR":
+            UPDATE = data[1].decode(FORMAT)[1:]
             source_path = os.path.join(ClINET_PATH, data[1].decode(FORMAT)[1:])
             destination_path = os.path.join(ClINET_PATH, data[2].decode(FORMAT)[1:])
             os.rename(source_path, destination_path)
             print("file rename from- " + source_path + " to " + destination_path)
+            continue
+        elif cmd == b'NO_UPDATES':
             break
 
+    print(f"[DISCONNECTED]  disconnected")
     client.close()
 
 
@@ -323,7 +343,7 @@ def packet_send(data):
 def notify_created(event):
     if not os.path.exists(event.src_path):
         return
-    subs = ["xml", "goutputstream", "~", "tmp"]
+    subs = ["xml", "goutputstream", "~", "tmp", UPDATE]
     for s in subs:
         if s in event.src_path:
             return
@@ -335,7 +355,7 @@ def notify_created(event):
 
 
 def notify_deleted(event):
-    subs = ["xml", "goutputstream", "~"]
+    subs = ["xml", "goutputstream", "~", UPDATE]
     for s in subs:
         if s in event.src_path:
             return
@@ -360,7 +380,7 @@ def notify_modified(event):
 
 def notify_moved(event):
 
-    subs = ["xml", "~"]
+    subs = ["xml", "~", UPDATE]
     for s in subs:
         if s in event.src_path:
             return
@@ -435,6 +455,7 @@ def main():
     my_observer.start()
     try:
         while True:
+            # time to update sever
             time.sleep(1)
     except KeyboardInterrupt:
         my_observer.stop()
