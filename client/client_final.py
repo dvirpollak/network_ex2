@@ -18,6 +18,8 @@ flag_rename_dir = False
 TOKEN_IN_BYTES = b'$'
 UPDATE = 'Waiting for command'
 REC_ACK = sys.getsizeof(b"ACK")
+identifier = ''
+computer_id = ''
 
 
 def clear_folder(dir):
@@ -55,7 +57,7 @@ def client_is_listening(computer_id):
         # makes a dir
         elif cmd == b'CRF':
             UPDATE = data[1].decode(FORMAT)
-            make_dir(data[1].decode(FORMAT))
+            make_dir(data[1].decode(FORMAT)[1:])
             client.send(b'ACK')
             continue
 
@@ -120,6 +122,7 @@ def client_is_listening(computer_id):
             client.send(b'ACK')
             continue
         elif cmd == b'NO_UPDATES':
+            client.send(b'SYN')
             break
 
     print(f"[DISCONNECTED]  disconnected")
@@ -255,35 +258,38 @@ def make_data(all_data):
 # first_connection - will connect to the server
 # and send him the identifier and computer id
 # return the identifier
-def first_connection(computer_id):
+def first_connection():
     # check if it got user name
 
     data_list = upload_file_content(ClINET_PATH)
-    data_list.insert(0,make_data(["NEW_USER", computer_id]))
+    data_list.insert(0, make_data(["NEW_USER", computer_id]))
     send_server(data_list)
+
 
 # --------------------------------
 # set_size compute the size of packet and send
 # so the next command will not interfere
 def set_size(data):
-    size_of_next_data = sys.getsizeof(data)
-    return make_data(['SET_SIZE', str(size_of_next_data)])
+    size_of_next_data = sys.getsizeof(data) + sys.getsizeof(identifier) + sys.getsizeof(computer_id)
+    return make_data(['SET_SIZE', str(size_of_next_data), identifier, computer_id])
 
 
 def send_server(list_of_updates):
+    global identifier
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
+
     while len(list_of_updates):
 
         full_data = list_of_updates.pop(0)
-        client.send(make_data(["SET_SIZE", str(sys.getsizeof(full_data))]))
+        client.send(set_size(full_data))
         client.recv(REC_ACK)
         data = full_data.split(b"$")
         cmd = data[0]
 
         if cmd == b"NEW_USER":
             client.send(full_data)
-            client.recv(REC_ACK)
+            identifier = client.recv(128).decode(FORMAT)  # for ID
             continue
         if cmd == b"DELETE":
             client.send(full_data)
@@ -291,13 +297,8 @@ def send_server(list_of_updates):
             continue
         # Receiving files from server
         if cmd == b'UPLOAD':
-
             client.send(full_data)
-
-
             file_to_send = open(os.path.join(ClINET_PATH, data[1].decode(FORMAT)[1:]), "rb")
-
-
             client.recv(REC_ACK)
             data = file_to_send.read()
 
@@ -423,7 +424,7 @@ def notify_moved(event):
 
 # ----------------------------------------
 # When there is no ID, importing from server
-def get_id(computer_id):
+def get_id():
     return first_connection(make_data(["CONNECT", computer_id]))
 
 
@@ -434,10 +435,11 @@ def id_generator(size=3, chars=string.ascii_uppercase + string.digits):
 
 
 def main():
+    global computer_id, identifier
     computer_id = id_generator()
     # no ID
     if len(sys.argv) == 5:
-        first_connection(computer_id)
+        first_connection()
 
     # There is ID
     if len(sys.argv) == 6:
@@ -463,7 +465,7 @@ def main():
         while True:
             # time to update sever
             time.sleep(time_connect)
-            # client_is_listening(computer_id)
+            client_is_listening(computer_id)
     except KeyboardInterrupt:
         my_observer.stop()
         my_observer.join()
