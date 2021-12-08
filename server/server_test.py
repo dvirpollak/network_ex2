@@ -68,16 +68,18 @@ def clear_folder(dir):
                     clear_folder(file_path)
                     os.rmdir(file_path)
             except Exception as e:
-                print(e)
+                pass
+               # print(e)
     os.rmdir(dir)
 
 
 def sending_updates(list_of_updates, client):
     while len(list_of_updates):
 
-        full_data = list_of_updates[0]
-        list_of_updates.pop(0)
+        full_data = list_of_updates.pop(0)
+
         client.send(make_data(["SET_SIZE", str(sys.getsizeof(full_data))]))
+
         data = full_data.split(b"$")
         cmd = data[0]
 
@@ -87,16 +89,18 @@ def sending_updates(list_of_updates, client):
 
         # Receiving files from server
         if cmd == b'UPLOAD':
-            file_to_down = ''
+            file_to_send = ''
             try:
-                file_to_down = open(os.path.join(SERVER_DATA_PATH, data[1].decode(FORMAT)), "wb")
+                file_to_send = open(os.path.join(SERVER_DATA_PATH, data[1].decode(FORMAT)[1:]), "rb")
+                print("we are in try")
             except OSError:
+                print("we are Eror")
                 continue
 
             client.send(full_data)
             client.recv(REC_ACK)
 
-            file_to_send = open(file_to_down, "rb")
+
             data = file_to_send.read()
             client.send(data)
             file_to_send.close()
@@ -106,6 +110,7 @@ def sending_updates(list_of_updates, client):
         # Creating dictionaries
         if cmd == b'CRF':
             client.send(full_data)
+            print(client)
             client.recv(REC_ACK)
             continue
         if cmd == b'MOVE':
@@ -133,7 +138,7 @@ def main():
 
     while True:
         size = 1024
-        print(size)
+
         client, addr = server.accept()
         print(f"[NEW CONNECTION] {addr} connected.")
 
@@ -145,15 +150,22 @@ def main():
             # to set the size of the commend
             if cmd == b"SET_SIZE":
                 size = int(data[1].decode(FORMAT))
-                print("SIZE of next pact =" + str(size))
+                identifier = data[2].decode(FORMAT)
+                try:
+                    computer_id = data[3].decode(FORMAT)
+                except IndexError:
+                    pass
                 client.send(b"ACK")
                 continue
             if cmd == b"CHECK_FOR_UPDATE":
-                if len(DATA_BASE.get(identifier).get(computer_id)) == 0:
+                computer_id = data[1].decode(FORMAT)
+                if not DATA_BASE[identifier][computer_id]:
+                    print("NO_UPDATES for " + computer_id)
                     client.send(b"NO_UPDATES")
-                    continue
+                    break
+                print("there is UPDATES for " + computer_id)
                 sending_updates(DATA_BASE.get(identifier).get(computer_id), client)
-                continue
+                break
 
             # new user is connecting
             if cmd == b"NEW_USER":
@@ -163,14 +175,13 @@ def main():
                 DATA_BASE.setdefault(identifier, {computer_id: []})
                 make_dir(identifier)
 
-                client.send(b'ACK')
+                client.send(identifier.encode(FORMAT))
                 continue
 
             # user with a user name connect will receive al the data contain in the file
             if cmd == b"CONNECT":
                 identifier = data[2].decode(FORMAT)
                 computer_id = data[1].decode(FORMAT)
-                print(identifier)
                 if computer_id in DATA_BASE[identifier].keys():
                    # print("you connected befor")
                     list_of_updates = DATA_BASE.get(identifier).get(computer_id)
@@ -222,10 +233,10 @@ def main():
 
             # makes a dir
             elif cmd == b'CRF':
-                for key, item in DATA_BASE.get(identifier).items():
-                    if key == computer_id:
+                for comp, updates in DATA_BASE.get(identifier).items():
+                    if comp == computer_id:
                         continue
-                    item.append(full_data)
+                    updates.append(full_data)
                 make_dir(identifier + data[1].decode(FORMAT))
                 client.send(b'ACK')
                 continue
@@ -236,10 +247,10 @@ def main():
                 path_to_put = data[1].decode(FORMAT)[1:]
                 filepath = os.path.join(SERVER_DATA_PATH, identifier,
                                         path_to_put)  # we need to check after change
-                for key, item in DATA_BASE.get(identifier).items():
-                    if key == computer_id:
+                for comp, updates in DATA_BASE.get(identifier).items():
+                    if comp == computer_id:
                         continue
-                    item.append(full_data)
+                    updates.append(full_data)
 
                 # right to the file the content that it receive
                 file_to_down = open(filepath, "wb")
