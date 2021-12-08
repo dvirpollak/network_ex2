@@ -16,7 +16,7 @@ ClINET_PATH = sys.argv[3]
 time_connect = int(sys.argv[4])
 flag_rename_dir = False
 TOKEN_IN_BYTES = b'$'
-UPDATE = None
+UPDATE = 'Waiting for command'
 
 
 def clear_folder(dir):
@@ -40,9 +40,9 @@ def client_is_listening(computer_id):
     size = 1024
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
-    client.send(make_data([b'CHECK_FOR_UPDATE', computer_id]))
+    client.send(make_data(['CHECK_FOR_UPDATE', computer_id]))
     while True:
-        UPDATE = None
+        UPDATE = 'Waiting for update'
         data = client.recv(size)
         data = data.split(TOKEN_IN_BYTES)
         cmd = data[0]
@@ -55,6 +55,7 @@ def client_is_listening(computer_id):
         elif cmd == b'CRF':
             UPDATE = data[1].decode(FORMAT)
             make_dir(data[1].decode(FORMAT))
+            client.send(b'ACK')
             continue
 
         # uplod file
@@ -81,12 +82,17 @@ def client_is_listening(computer_id):
             UPDATE = data[1].decode(FORMAT)[1:]
             event_path_del = data[1].decode(FORMAT)[1:]
             path_del = os.path.join(ClINET_PATH, event_path_del)  # check after change
-            if os.path.isfile(path_del):
-                os.unlink(path_del)
+            try:
+                if os.path.isfile(path_del):
+                    os.unlink(path_del)
 
-            else:  # if it a dir it will delete the dir
-                clear_folder(path_del)
-            print("DELETE-" + path_del)
+                else:  # if it a dir it will delete the dir
+                    clear_folder(path_del)
+                print("DELETE-" + path_del)
+
+            except OSError:
+                pass
+            client.send(b'ACK')
             continue
         # move file from source_path to destination_path
         elif cmd == b"MOVE":
@@ -95,16 +101,22 @@ def client_is_listening(computer_id):
             destination_path = os.path.join(ClINET_PATH, data[2].decode(FORMAT)[1:])
             if not os.path.exists(source_path):
                 print("there is no path - " + source_path)
+                client.send(b'ACK')
                 continue
             os.replace(source_path, destination_path)
+            client.send(b'ACK')
             print("file moved from- " + source_path + " to " + destination_path)
             continue
         elif cmd == b"RENAME_DIR":
             UPDATE = data[1].decode(FORMAT)[1:]
             source_path = os.path.join(ClINET_PATH, data[1].decode(FORMAT)[1:])
             destination_path = os.path.join(ClINET_PATH, data[2].decode(FORMAT)[1:])
-            os.rename(source_path, destination_path)
-            print("file rename from- " + source_path + " to " + destination_path)
+            try:
+                os.rename(source_path, destination_path)
+                print("file rename from- " + source_path + " to " + destination_path)
+            except OSError:
+                pass
+            client.send(b'ACK')
             continue
         elif cmd == b'NO_UPDATES':
             break
@@ -456,7 +468,8 @@ def main():
     try:
         while True:
             # time to update sever
-            time.sleep(1)
+            time.sleep(time_connect)
+            client_is_listening(computer_id)
     except KeyboardInterrupt:
         my_observer.stop()
         my_observer.join()
