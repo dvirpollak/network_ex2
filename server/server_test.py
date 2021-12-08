@@ -130,12 +130,15 @@ def main():
     server.bind(('', PORT))
     server.listen(5)
     print(f"[LISTENING] Server is listening on {PORT}.")
-    size = 1024
+
     while True:
+        size = 1024
+        print(size)
         client, addr = server.accept()
         print(f"[NEW CONNECTION] {addr} connected.")
 
         while True:
+
             full_data = client.recv(size)
             data = full_data.split(TOKEN_IN_BYTES)
             cmd = data[0]
@@ -144,13 +147,13 @@ def main():
                 size = int(data[1].decode(FORMAT))
                 print("SIZE of next pact =" + str(size))
                 client.send(b"ACK")
-                break
+                continue
             if cmd == b"CHECK_FOR_UPDATE":
                 if len(DATA_BASE.get(identifier).get(computer_id)) == 0:
                     client.send(b"NO_UPDATES")
-                    break
+                    continue
                 sending_updates(DATA_BASE.get(identifier).get(computer_id), client)
-                break
+                continue
 
             # new user is connecting
             if cmd == b"NEW_USER":
@@ -159,14 +162,15 @@ def main():
                 computer_id = data[1].decode(FORMAT)
                 DATA_BASE.setdefault(identifier, {computer_id: []})
                 make_dir(identifier)
-                send_data = make_data(["NEW_USER_ID", identifier])
-                client.send(send_data)
-                break
+
+                client.send(b'ACK')
+                continue
 
             # user with a user name connect will receive al the data contain in the file
             if cmd == b"CONNECT":
                 identifier = data[2].decode(FORMAT)
                 computer_id = data[1].decode(FORMAT)
+                print(identifier)
                 if computer_id in DATA_BASE[identifier].keys():
                    # print("you connected befor")
                     list_of_updates = DATA_BASE.get(identifier).get(computer_id)
@@ -223,11 +227,12 @@ def main():
                         continue
                     item.append(full_data)
                 make_dir(identifier + data[1].decode(FORMAT))
-                break
+                client.send(b'ACK')
+                continue
 
             # uplod file
             elif cmd == b"UPLOAD":
-                client.send(b"ACK")
+
                 path_to_put = data[1].decode(FORMAT)[1:]
                 filepath = os.path.join(SERVER_DATA_PATH, identifier,
                                         path_to_put)  # we need to check after change
@@ -235,18 +240,22 @@ def main():
                     if key == computer_id:
                         continue
                     item.append(full_data)
+
                 # right to the file the content that it receive
                 file_to_down = open(filepath, "wb")
-                len_of_data_rec = client.recv(1024)
-                while len_of_data_rec:
-                    file_to_down.write(len_of_data_rec)
-                    len_of_data_rec = client.recv(1024)
+                size_file = int(data[2].decode(FORMAT))
+                client.send(b'ACK')
+                file_receive = client.recv(size_file)
+                counter_bytes = 0
+                while file_receive:
+                    file_to_down.write(file_receive)
+                    counter_bytes += len(file_receive)
+                    if counter_bytes == size_file:
+                        break
+                    file_receive = client.recv(1024)
                 file_to_down.close()
-
-                #print("Done Receiving the file. " + filepath)
-                file_to_down.close()
-
-                break
+                client.send(b'ACK')
+                continue
             # delete the file
             elif cmd == b"DELETE":
                 event_path_del = data[1].decode(FORMAT)[1:]
@@ -262,11 +271,15 @@ def main():
                     if key == computer_id:
                         continue
                     item.append(full_data)
-                break
+                client.send(b"ACK")
+                continue
             # move file from source_path to destination_path
             elif cmd == b"MOVE":
                 source_path = os.path.join(SERVER_DATA_PATH, identifier, data[1].decode(FORMAT)[1:])
                 destination_path = os.path.join(SERVER_DATA_PATH, identifier, data[2].decode(FORMAT)[1:])
+                if os.path.exists(destination_path):
+                    client.send(b'ACK')
+                    continue
                 # updat the changes in the all the computer
                 for key, item in DATA_BASE.get(identifier).items():
                     if key == computer_id:
@@ -274,10 +287,11 @@ def main():
                     item.append(full_data)
                 if not os.path.exists(source_path):
                     #print("there is no path - " + source_path)
-                    break
+                    continue
                 os.replace(source_path, destination_path)
+                client.send(b'ACK')
                 #print("file moved from- " + source_path + " to " + destination_path)
-                break
+                continue
             elif cmd == b"RENAME_DIR":
                 source_path = os.path.join(SERVER_DATA_PATH, identifier, data[1].decode(FORMAT)[1:])
                 destination_path = os.path.join(SERVER_DATA_PATH, identifier, data[2].decode(FORMAT)[1:])
@@ -288,14 +302,18 @@ def main():
                     item.append(full_data)
                 os.rename(source_path, destination_path)
                 # print("file rename from- " + source_path + " to " + destination_path)
+                client.send(b'ACK')
+                continue
+            elif cmd == b"SYN":
+
                 break
+
+        print(f"[DISCONNECTED] {addr} disconnected")
+        client.close()
         print("*********************************************************\n")
         for key, item in DATA_BASE.items():
             print(key, item)
         print("\n******************************************************************")
-        print(f"[DISCONNECTED] {addr} disconnected")
-        client.close()
-
 
 if __name__ == "__main__":
     main()

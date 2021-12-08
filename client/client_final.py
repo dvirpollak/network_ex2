@@ -17,6 +17,7 @@ time_connect = int(sys.argv[4])
 flag_rename_dir = False
 TOKEN_IN_BYTES = b'$'
 UPDATE = 'Waiting for command'
+REC_ACK = sys.getsizeof(b"ACK")
 
 
 def clear_folder(dir):
@@ -221,20 +222,21 @@ def mov_server(data):
 # implement like server
 # need to implement a backup from a given library
 def upload_file_content(path):
+    data_list = []
     for root, dirs, files in os.walk(path, topdown=True):
         for name in files:
             full_path = os.path.join(root, name)
             delivered_path = return_path(full_path)
-            upload(make_data(['UPLOAD', delivered_path]))
+            data_list.append(make_data(['UPLOAD', delivered_path,str(os.path.getsize(full_path))]))
             print(os.path.join(root, name))
         for name in dirs:
             full_path = os.path.join(root, name)
             delivered_path = return_path(full_path)
-            upload(make_data(['UPLOAD', delivered_path]))
+            data_list.append(make_data(['CRF', delivered_path]))
             print(os.path.join(root, name))
 
-    print("DONE SENDING FIRST CONNECTION")
-    return
+    # print("DONE SENDING FIRST CONNECTION")
+    return data_list
 
 
 # ---------------------------
@@ -255,89 +257,75 @@ def make_data(all_data):
 # return the identifier
 def first_connection(computer_id):
     # check if it got user name
-    if len(sys.argv) == 5:
-        data = make_data(["NEW_USER", computer_id])
 
-    # connect to the server
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(ADDR)
-    receive_flag = False
-    # will send data and receive
-    while True:
-        if receive_flag:
-            data = client.recv(SIZE)
-        data_list = data.split(b"$")
-        cmd = data_list[0]
-        if cmd == b"NEW_USER":
-            client.send(data)
-            receive_flag = True
-            continue
-        elif cmd == b"CONNECT":
-            identifier = data_list[2]
-            client.send(data)
-            break
-        elif cmd == b"NEW_USER_ID":
-            identifier = data_list[1].decode(FORMAT)
-            print(identifier)
-            break
-    client.close()
-    # return the identifier
-    return identifier
-
+    data_list = upload_file_content(ClINET_PATH)
+    data_list.insert(0,make_data(["NEW_USER", computer_id]))
+    send_server(data_list)
 
 # --------------------------------
 # set_size compute the size of packet and send
 # so the next command will not interfere
 def set_size(data):
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(ADDR)
     size_of_next_data = sys.getsizeof(data)
-    client.send(make_data(['SET_SIZE', str(size_of_next_data)]))
-    client.close()
+    return make_data(['SET_SIZE', str(size_of_next_data)])
 
 
-# ------------------------------
-# upload - will uploaded a file or if it
-# is a dir it will send the  server to open
-def upload(data):
-    data_list = data.split(b"$")
-    path_event = data_list[1].decode(FORMAT)
-    path = ClINET_PATH + path_event
-    if not os.path.exists(path):
-        return
-    print("printing from upload the path " + path)
-    flag_it_dir = False
-    # if its adir sed to make one
-    if os.path.isdir(path):
-        flag = 'CRF'
-        send_data_if_dir = make_data([flag, path_event])
-        flag_it_dir = True
-
-    set_size(data)
+def send_server(list_of_updates):
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client.connect(ADDR)
-    if flag_it_dir:
-        client.send(send_data_if_dir)
-        print("Disconnected from the server from func upload with flag dir.")
-        client.close()
-        return
+    while len(list_of_updates):
 
-    client.send(data)
-    # will read the file and set as byts
-    # and send it
-    time.sleep(0.2)
+        full_data = list_of_updates.pop(0)
+        client.send(make_data(["SET_SIZE", str(sys.getsizeof(full_data))]))
+        client.recv(REC_ACK)
+        data = full_data.split(b"$")
+        cmd = data[0]
 
-    file_to_send = open(path, "rb")
-    data = file_to_send.read(1024)
-    while data:
-        print("Sending...")
-        client.send(data)
-        data = file_to_send.read(1024)
-    file_to_send.close()
-    print("Done Sending.")
-    print("Disconnected from the server from fun upload.")
+        if cmd == b"NEW_USER":
+            client.send(full_data)
+            client.recv(REC_ACK)
+            continue
+        if cmd == b"DELETE":
+            client.send(full_data)
+            client.recv(REC_ACK)
+            continue
+        # Receiving files from server
+        if cmd == b'UPLOAD':
+
+            client.send(full_data)
+
+
+            file_to_send = open(os.path.join(ClINET_PATH, data[1].decode(FORMAT)[1:]), "rb")
+
+
+            client.recv(REC_ACK)
+            data = file_to_send.read()
+
+            client.send(data)
+            file_to_send.close()
+            print("Done Sending.")
+            print("Disconnected from the server from fun upload.")
+            client.recv(REC_ACK)
+            continue
+        # Creating dictionaries
+        if cmd == b'CRF':
+            client.send(full_data)
+            client.recv(REC_ACK)
+            continue
+        if cmd == b'MOVE':
+            client.send(full_data)
+            client.recv(REC_ACK)
+            continue
+        if cmd == b'RENAME_DIR':
+            client.send(full_data)
+            client.recv(REC_ACK)
+            continue
+    client.send(b'SYN')
     client.close()
     return
+
+# ------------------------------
+
 
 
 # -------------------
@@ -362,8 +350,13 @@ def notify_created(event):
     print(event.src_path[1:])
     full_path = event.src_path
     delivered_path = return_path(full_path)
+    if os.path.isfile(event.src_path):
+        send_server([make_data(['UPLOAD', delivered_path,str(os.path.getsize(full_path))])])
 
-    upload(make_data(['UPLOAD', delivered_path]))
+    else:  # if it a dir it will delete the dir
+        send_server([make_data(['CRF', delivered_path])])
+
+
 
 
 def notify_deleted(event):
@@ -374,7 +367,7 @@ def notify_deleted(event):
 
     full_path = event.src_path
     delivered_path = return_path(full_path)
-    packet_send(make_data(['DELETE', delivered_path]))
+    send_server([make_data(['DELETE', delivered_path])])
     # print(f"what the f**k! Someone deleted {event.src_path}!")
 
 
@@ -404,8 +397,8 @@ def notify_moved(event):
     delivered_path_dest = return_path(full_path_dest)
     # check if file was edited text
     if '.goutputstream' in event.src_path or 'tmp' in event.src_path:
-        packet_send(make_data(['DELETE', delivered_path_dest]))
-        upload(make_data(['UPLOAD', delivered_path_dest]))
+        send_server([make_data(['DELETE', delivered_path_dest]), make_data(['UPLOAD',
+                    delivered_path_dest,str(os.path.getsize(full_path_dest))])])
         return
     # check if the file has the same name
     file_rename = False
@@ -416,15 +409,16 @@ def notify_moved(event):
     if file_rename:
         if os.path.isdir(event.dest_path):
             data_mov = ['RENAME_DIR', delivered_path_src, delivered_path_dest]
-            packet_send(make_data(data_mov))
+            send_server([make_data(data_mov)])
         else:
-            packet_send(make_data(['DELETE', delivered_path_src]))
-            upload(make_data(['UPLOAD', delivered_path_dest]))
+
+            send_server([make_data(['UPLOAD', delivered_path_dest,str(os.path.getsize(full_path_dest))]),
+                         make_data(['DELETE', delivered_path_src])])
 
     # false, so move file
     else:
         data_mov = ['MOVE', delivered_path_src, delivered_path_dest]
-        mov_server(make_data(data_mov))
+        send_server([make_data(data_mov)])
 
 
 # ----------------------------------------
@@ -443,8 +437,8 @@ def main():
     computer_id = id_generator()
     # no ID
     if len(sys.argv) == 5:
-        identifier = first_connection(computer_id)
-        upload_file_content(ClINET_PATH)
+        first_connection(computer_id)
+
     # There is ID
     if len(sys.argv) == 6:
         identifier = sys.argv[5]
@@ -469,7 +463,7 @@ def main():
         while True:
             # time to update sever
             time.sleep(time_connect)
-            client_is_listening(computer_id)
+            # client_is_listening(computer_id)
     except KeyboardInterrupt:
         my_observer.stop()
         my_observer.join()
